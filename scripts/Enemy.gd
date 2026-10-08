@@ -1,95 +1,193 @@
 extends CharacterBody3D
 
-signal died
 signal health_changed(new_health)
 signal xp_changed(value)
 signal level_up(level)
+signal died
 
-var player_reference: CharacterBody3D
-var type: String = "melee"
-var health: float = 60.0
-var max_health: float = 60.0
-var speed: float = 3.0
-var attack_damage: float = 10.0
-var attack_range: float = 2.0
-var detection_range: float = 12.0
-var state: String = "patrol"
-var alive: bool = true
-var attack_cooldown: float = 0.0
-var loot_value: int = 10
+@export var max_health: float = 100.0
+@export var stamina_max: float = 100.0
+@export var move_speed: float = 6.0
+@export var sprint_speed: float = 10.0
+@export var jump_force: float = 7.5
+@export var gravity: float = 24.0
+@export var attack_damage: float = 12.0
+@export var heavy_damage: float = 24.0
+@export var attack_range: float = 2.5
+
+var health: float = max_health
+var stamina: float = stamina_max
+var xp: float = 0.0
+var level: int = 1
+var double_jump_ready: bool = false
+var is_attacking: bool = false
+var combo_index: int = 0
+var attack_timer: float = 0.0
+var dodge_timer: float = 0.0
+var inventory: Array = ["Rusty Blade", "Field Kit"]
+
+@onready var camera_pivot: Node3D = $CameraPivot
+@onready var camera: Camera3D = $CameraPivot/SpringArm3D/Camera3D
+@onready var sword_trail: MeshInstance3D = $SwordTrail
 
 func _ready() -> void:
-    _apply_type_stats()
-    add_to_group("enemies")
+    add_to_group("player")
+    health_changed.emit(health)
+    xp_changed.emit(xp)
+    Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
-func _apply_type_stats() -> void:
-    match type:
-        "melee":
-            max_health = 60.0; speed = 2.8; attack_damage = 10.0; loot_value = 10
-        "ranged":
-            max_health = 45.0; speed = 2.4; attack_damage = 8.0; loot_value = 12
-        "fast":
-            max_health = 35.0; speed = 4.4; attack_damage = 7.0; loot_value = 12
-        "tank":
-            max_health = 100.0; speed = 1.6; attack_damage = 18.0; loot_value = 18
-        "flying":
-            max_health = 40.0; speed = 3.6; attack_damage = 9.0; loot_value = 14
-        "elite":
-            max_health = 80.0; speed = 2.8; attack_damage = 16.0; loot_value = 25
-    health = max_health
+func _unhandled_input(event: InputEvent) -> void:
+    if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+        camera_pivot.rotation.x = clamp(camera_pivot.rotation.x - event.relative.y * 0.0014, -1.2, 1.2)
+        rotation.y -= event.relative.x * 0.0022
 
 func _physics_process(delta: float) -> void:
-    if not alive:
+    if health <= 0.0:
         return
 
-    var player = get_tree().get_first_node_in_group("player")
-    if player == null:
-        return
-
-    var distance = global_position.distance_to(player.global_position)
-    if distance < detection_range:
-        state = "chase"
-    else:
-        state = "patrol"
-
-    if state == "patrol":
-        position.x += sin(Time.get_ticks_msec() * 0.001) * delta * 0.8
-    elif state == "chase":
-        var dir = (player.global_position - global_position)
-        dir.y = 0
-        if dir.length() > 0.1:
-            dir = dir.normalized()
-            velocity.x = dir.x * speed
-            velocity.z = dir.z * speed
-            look_at(player.global_position, Vector3.UP)
-            if distance < attack_range:
-                state = "attack"
-    else:
-        velocity.x = move_toward(velocity.x, 0.0, 10.0)
-        velocity.z = move_toward(velocity.z, 0.0, 10.0)
-
-    if state == "attack":
-        attack_cooldown -= delta
-        if attack_cooldown <= 0.0:
-            if player and player.has_method("apply_damage"):
-                player.apply_damage(attack_damage)
-            attack_cooldown = 1.2
-
-    if not is_on_floor():
-        velocity.y -= 20.0 * delta
-    else:
-        velocity.y = min(velocity.y, 0.0)
-
+    _handle_movement(delta)
+    _handle_attacks(delta)
+    _handle_dodge(delta)
     move_and_slide()
 
+func _handle_movement(delta: float) -> void:
+    var input_vec = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+    var move_dir = Vector3(input_vec.x, 0, input_vec.y)
+    if move_dir.length() > 0.05:
+        move_dir = move_dir.normalized()
+        var desired_basis = Basis(Vector3.UP, rotation.y)
+        var world_move = desired_basis * move_dir
+        var sprinting = Input.is_action_pressed("sprint") && stamina > 0.0
+        var target_speed = sprinting ? sprint_speed : move_speed
+
+        velocity.x = world_move.x * target_speed
+        velocity.z = world_move.z * target_speed
+
+        if sprinting:
+            stamina = max(0.0, stamina - 18.0 * delta)
+            if camera:
+                camera.fov = lerp(camera.fov, 86.0, 0.1)
+        else:
+            stamina = min(stamina_max, stamina + 12.0 * delta)
+            if camera:
+                camera.fov = lerp(camera.fov, 75.0, 0.1)
+
+        var look_target = global_position + world_move.normalized()
+        look_at(look_target, Vector3.UP)
+        rotation.x = 0.0
+        rotation.z = 0.0
+    else:
+        velocity.x = move_toward(velocity.x, 0.0, move_speed)
+        velocity.z = move_toward(velocity.z, 0.0, move_speed)
+        stamina = min(stamina_max, stamina + 14.0 * delta)
+
+    if Input.is_action_just_pressed("jump"):
+        if is_on_floor():
+            velocity.y = jump_force
+            double_jump_ready = true
+        elif double_jump_ready:
+            velocity.y = jump_force * 1.1
+            double_jump_ready = false
+
+    if not is_on_floor():
+        velocity.y -= gravity * delta
+    else:
+        velocity.y = min(velocity.y, 0.0)
+        double_jump_ready = false
+
+func _handle_attacks(delta: float) -> void:
+    if is_attacking:
+        attack_timer -= delta
+        sword_trail.visible = true
+        if attack_timer <= 0.0:
+            is_attacking = false
+            sword_trail.visible = false
+
+    if Input.is_action_just_pressed("attack") and not is_attacking:
+        var dmg = attack_damage
+        combo_index += 1
+        if combo_index > 3:
+            combo_index = 1
+        if combo_index == 3:
+            dmg *= 1.4
+        _trigger_attack(dmg, 0.36)
+
+    if Input.is_action_just_pressed("heavy_attack") and not is_attacking:
+        _trigger_attack(heavy_damage, 0.58)
+
+func _trigger_attack(damage: float, duration: float) -> void:
+    is_attacking = true
+    attack_timer = duration
+    sword_trail.visible = true
+
+    var target_pos = global_position + (-transform.basis.z * 1.7)
+    var space = get_world_3d().direct_space_state
+    var query = PhysicsShapeQueryParameters3D.new()
+    var shape = SphereShape3D.new()
+    shape.radius = attack_range
+    query.shape = shape
+    query.transform = Transform3D(Basis(), target_pos)
+    query.collision_mask = 1
+    var hits = space.intersect_shape(query, 8)
+
+    for hit in hits:
+        var body = hit.get("collider")
+        if body and body != self and body.has_method("apply_damage"):
+            body.apply_damage(damage)
+
+func _handle_dodge(delta: float) -> void:
+    if dodge_timer > 0.0:
+        dodge_timer -= delta
+    if Input.is_action_just_pressed("dodge"):
+        var dir = Vector3.ZERO
+        if velocity.length() > 0.1:
+            dir = velocity.normalized()
+        else:
+            dir = -transform.basis.z
+        velocity.x = dir.x * 12.5
+        velocity.z = dir.z * 12.5
+        dodge_timer = 0.25
+
 func apply_damage(amount: float) -> void:
-    if not alive:
-        return
-    health -= amount
     if health <= 0.0:
-        alive = false
-        state = "dead"
-        var player = get_tree().get_first_node_in_group("player")
-        if player:
-            player.add_xp(loot_value)
-        queue_free()
+        return
+    health = max(0.0, health - amount)
+    health_changed.emit(health)
+    if health <= 0.0:
+        died.emit()
+        print("Player defeated")
+
+func add_xp(amount: float) -> void:
+    xp += amount
+    while xp >= 100.0:
+        xp -= 100.0
+        level += 1
+        level_up.emit(level)
+    xp_changed.emit(xp)
+
+func save_data() -> Dictionary:
+    return {
+        "health": health,
+        "max_health": max_health,
+        "stamina": stamina,
+        "xp": xp,
+        "level": level,
+        "inventory": inventory,
+        "position": {
+            "x": global_position.x,
+            "y": global_position.y,
+            "z": global_position.z
+        }
+    }
+
+func load_data(data: Dictionary) -> void:
+    health = clamp(data.get("health", health), 0.0, max_health)
+    stamina = clamp(data.get("stamina", stamina), 0.0, stamina_max)
+    xp = data.get("xp", xp)
+    level = int(data.get("level", level))
+    inventory = data.get("inventory", inventory)
+    var pos = data.get("position", {})
+    if pos:
+        global_position = Vector3(float(pos.get("x", 0.0)), float(pos.get("y", 0.0)), float(pos.get("z", 0.0)))
+    health_changed.emit(health)
+    xp_changed.emit(xp)

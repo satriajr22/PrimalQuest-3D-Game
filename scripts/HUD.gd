@@ -1,60 +1,79 @@
-extends CanvasLayer
+extends CharacterBody3D
 
-var player_ref: CharacterBody3D
+signal boss_phase_changed(phase)
 
-@onready var health_bar: ProgressBar = $HealthBar
-@onready var stamina_bar: ProgressBar = $StaminaBar
-@onready var xp_bar: ProgressBar = $XPBar
-@onready var boss_bar: ProgressBar = $BossBar
-@onready var quest_label: Label = $QuestLabel
-@onready var info_label: Label = $InfoLabel
+var player_reference: CharacterBody3D
+var phase: int = 1
+var max_health: float = 220.0
+var health: float = 220.0
+var speed: float = 2.6
+var attack_damage: float = 18.0
+var detection_range: float = 18.0
+var attack_cooldown: float = 0.0
+var alive: bool = true
 
-func set_player(player: CharacterBody3D) -> void:
-    player_ref = player
-    if player_ref:
-        player_ref.connect("health_changed", Callable(self, "_on_health_updated"))
-        player_ref.connect("xp_changed", Callable(self, "_on_xp_updated"))
+func _ready() -> void:
+    add_to_group("boss")
 
-func _on_health_updated(value: float) -> void:
-    update_health(value)
+func _physics_process(delta: float) -> void:
+    if not alive:
+        return
 
-func _on_xp_updated(value: float) -> void:
-    update_xp(value)
+    var player = player_reference if player_reference else get_tree().get_first_node_in_group("player")
+    if player == null:
+        return
 
-func update_health(value: float) -> void:
-    if health_bar:
-        health_bar.value = value
+    var distance = global_position.distance_to(player.global_position)
+    if distance < detection_range:
+        var dir = player.global_position - global_position
+        dir.y = 0
+        if dir.length() > 0.1:
+            dir = dir.normalized()
+            if distance > 3.2:
+                velocity.x = dir.x * speed
+                velocity.z = dir.z * speed
+            else:
+                velocity.x = move_toward(velocity.x, 0.0, 14.0)
+                velocity.z = move_toward(velocity.z, 0.0, 14.0)
+            look_at(player.global_position, Vector3.UP)
 
-func update_experience(value: float) -> void:
-    if xp_bar:
-        xp_bar.value = value
+        attack_cooldown -= delta
+        if distance < 3.2 and attack_cooldown <= 0.0:
+            if player.has_method("apply_damage"):
+                player.apply_damage(attack_damage)
+            attack_cooldown = 1.3
 
-func update_xp(value: float) -> void:
-    if xp_bar:
-        xp_bar.value = value
+        if health < max_health * 0.7 and phase == 1:
+            phase = 2
+            speed = 3.8
+            attack_damage = 26.0
+            boss_phase_changed.emit(phase)
+        elif health < max_health * 0.35 and phase == 2:
+            phase = 3
+            speed = 4.6
+            attack_damage = 34.0
+            boss_phase_changed.emit(phase)
+    else:
+        velocity.x = move_toward(velocity.x, 0.0, 8.0)
+        velocity.z = move_toward(velocity.z, 0.0, 8.0)
 
-func update_boss(value: float, visible: bool = true) -> void:
-    if boss_bar:
-        boss_bar.visible = visible
-        boss_bar.value = value
+    if not is_on_floor():
+        velocity.y -= 22.0 * delta
+    else:
+        velocity.y = min(velocity.y, 0.0)
 
-func _process(_delta: float) -> void:
-    if player_ref and player_ref.has_method("save_data"):
-        if health_bar:
-            health_bar.max_value = player_ref.max_health
-        if stamina_bar:
-            stamina_bar.value = player_ref.stamina
-        if xp_bar:
-            xp_bar.max_value = 100.0
-            xp_bar.value = player_ref.xp
-        if boss_bar and get_tree().get_first_node_in_group("boss"):
-            var boss = get_tree().get_first_node_in_group("boss")
-            if boss and boss.has_method("get_health_ratio"):
-                boss_bar.visible = true
-                boss_bar.value = boss.get_health_ratio() * 100.0
+    move_and_slide()
 
-    if QuestSystem:
-        var key = "intro"
-        var data = QuestSystem.get_quest_snapshot().get(key, {})
-        if quest_label and data.has("title"):
-            quest_label.text = "Quest: %s" % data["title"]
+func apply_damage(amount: float) -> void:
+    if not alive:
+        return
+    health -= amount
+    if health <= 0.0:
+        alive = false
+        var player = player_reference if player_reference else get_tree().get_first_node_in_group("player")
+        if player and player.has_method("add_xp"):
+            player.add_xp(300.0)
+        queue_free()
+
+func get_health_ratio() -> float:
+    return clamp(health / max_health, 0.0, 1.0)

@@ -1,18 +1,36 @@
 extends Node
 
-signal quest_updated(title, description, progress)
+const SAVE_PATH: String = "user://primalquest_save.json"
 
-var quest_data = {
-    "intro": {"title": "Awakening", "description": "Reach the ruins and prepare for survival.", "progress": 0.0, "goal": 1.0},
-    "forest": {"title": "Forest Whisper", "description": "Defeat the outpost enemies in the forest.", "progress": 0.0, "goal": 5.0},
-    "ruins": {"title": "Ruins of the Old City", "description": "Explore the abandoned village and recover the relics.", "progress": 0.0, "goal": 3.0},
-    "boss": {"title": "The Core Warden", "description": "Defeat the final guardian.", "progress": 0.0, "goal": 1.0}
-}
+func save_game(player: Node, world: Node, quests: Dictionary) -> Dictionary:
+    var payload = {
+        "player": player.has_method("save_data") ? player.save_data() : {},
+        "world": {
+            "location": "City District",
+            "boss_defeated": false
+        },
+        "quests": quests
+    }
 
-func update_quest(key: String, value: float) -> void:
-    if quest_data.has(key):
-        quest_data[key]["progress"] = clamp(value, 0.0, quest_data[key]["goal"])
-        emit_signal("quest_updated", quest_data[key]["title"], quest_data[key]["description"], quest_data[key]["progress"] / quest_data[key]["goal"])
+    var file = FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+    if file:
+        file.store_string(JSON.stringify(payload, "\t"))
+        file.close()
 
-func get_quest_snapshot() -> Dictionary:
-    return quest_data.duplicate(true)
+    return payload
+
+func load_game() -> Dictionary:
+    if not FileAccess.file_exists(SAVE_PATH):
+        return {}
+
+    var file = FileAccess.open(SAVE_PATH, FileAccess.READ)
+    if file == null:
+        return {}
+
+    var text = file.get_as_text()
+    file.close()
+    var json = JSON.new()
+    var err = json.parse(text)
+    if err != OK:
+        return {}
+    return json.data

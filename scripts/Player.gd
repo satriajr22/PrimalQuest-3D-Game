@@ -1,176 +1,121 @@
-extends CharacterBody3D
+extends Node3D
 
-signal health_changed(new_health)
-signal xp_changed(amount)
-signal level_up(level)
-signal died
+var player_ref: CharacterBody3D
+var enemy_count: int = 0
+var boss_ref: CharacterBody3D
 
-@export var max_health: float = 100.0
-@export var move_speed: float = 6.5
-@export var sprint_speed: float = 10.5
-@export var jump_force: float = 7.0
-@export var gravity: float = 20.0
-@export var attack_damage: float = 12.0
-@export var heavy_damage: float = 24.0
-@export var stamina_max: float = 100.0
-@export var attack_range: float = 2.2
+func initialize(player: CharacterBody3D) -> void:
+    player_ref = player
+    _build_world()
+    _spawn_enemies()
+    _spawn_collectibles()
 
-var health: float = max_health
-var stamina: float = stamina_max
-var xp: float = 0.0
-var level: int = 1
-var double_jump_ready: bool = false
-var is_attacking: bool = false
-var attack_timer: float = 0.0
-var heavy_attack_ready: bool = false
-var inventory: Array = ["Rusty Blade", "Survival Kit"]
-var current_target: Node3D
+func _build_world() -> void:
+    var ground = MeshInstance3D.new()
+    var ground_mesh = BoxMesh.new()
+    ground_mesh.size = Vector3(220, 1, 220)
+    ground.mesh = ground_mesh
+    ground.position = Vector3(0, -0.5, 0)
+    add_child(ground)
+    ground.name = "Ground"
 
-@onready var camera_pivot: Node3D = $CameraPivot
-@onready var camera: Camera3D = $CameraPivot/SpringArm3D/Camera3D
-@onready var sword_trail: MeshInstance3D = $SwordTrail
+    _add_area("City", Vector3(-25, 0, 0), Vector3(30, 2, 30), Color(0.18, 0.2, 0.25, 0.22))
+    _add_area("Forest", Vector3(25, 0, -18), Vector3(28, 2, 28), Color(0.12, 0.42, 0.18, 0.22))
+    _add_area("Village", Vector3(30, 0, 22), Vector3(24, 2, 24), Color(0.42, 0.38, 0.28, 0.22))
+    _add_area("Cavern", Vector3(-30, 0, 28), Vector3(18, 2, 18), Color(0.15, 0.15, 0.2, 0.22))
+    _add_area("BossArena", Vector3(0, 0, -30), Vector3(18, 2, 18), Color(0.65, 0.12, 0.12, 0.24))
 
-func _ready() -> void:
-    health_changed.emit(health)
-    xp_changed.emit(xp)
-    Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-    set_physics_process(true)
+    for i in range(10):
+        var building = MeshInstance3D.new()
+        var box = BoxMesh.new()
+        box.size = Vector3(2.6, 8.0, 2.6)
+        building.mesh = box
+        building.position = Vector3(-24 + (i % 4) * 7, 4.0, -10 + (i / 4) * 6)
+        var mat = StandardMaterial3D.new()
+        mat.albedo_color = Color(0.5, 0.58, 0.72, 1.0)
+        building.material_override = mat
+        add_child(building)
+        building.name = "DecorBuilding_%s" % i
 
-func _physics_process(delta: float) -> void:
-    if health <= 0.0:
-        return
+    for i in range(6):
+        _add_tree(Vector3(10 + i * 7, 1, -14), 2.0 + (i % 3) * 0.5)
+        _add_tree(Vector3(-16 + i * 5, 1, 18), 1.8 + (i % 2) * 0.8)
 
-    _handle_camera(delta)
-    _handle_movement(delta)
-    _handle_attacks(delta)
-    _handle_interaction()
-    move_and_slide()
+func _add_area(area_name: String, pos: Vector3, size: Vector3, color: Color) -> MeshInstance3D:
+    var area = MeshInstance3D.new()
+    var mesh = BoxMesh.new()
+    mesh.size = size
+    area.mesh = mesh
+    area.position = pos
+    area.material_override = StandardMaterial3D.new()
+    area.material_override.albedo_color = color
+    area.material_override.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+    add_child(area)
+    area.name = "Area_%s" % area_name
+    return area
 
-func _handle_camera(_delta: float) -> void:
-    var camera_target = global_position + Vector3(0, 1.5, 0)
-    camera_pivot.global_position = camera_target
-    var desired_rotation = camera_pivot.rotation.y
-    camera_pivot.rotation.y = lerp_angle(camera_pivot.rotation.y, desired_rotation, 0.12)
+func _add_tree(pos: Vector3, scale_value: float) -> void:
+    var trunk = MeshInstance3D.new()
+    var trunk_mesh = CylinderMesh.new()
+    trunk_mesh.height = 3.2
+    trunk_mesh.top_radius = 0.22
+    trunk_mesh.bottom_radius = 0.28
+    trunk.mesh = trunk_mesh
+    trunk.position = pos
+    trunk.scale = Vector3(0.45 * scale_value, 1.0, 0.45 * scale_value)
+    add_child(trunk)
 
-func _handle_movement(delta: float) -> void:
-    var input_vec = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
-    var direction = Vector3(input_vec.x, 0, input_vec.y)
-    direction = direction.rotated(Vector3.UP, rotation.y)
+    var leaves = MeshInstance3D.new()
+    var sphere = SphereMesh.new()
+    sphere.radius = 1.2 * scale_value
+    sphere.height = 2.4 * scale_value
+    leaves.mesh = sphere
+    leaves.position = pos + Vector3(0, 2.2, 0)
+    add_child(leaves)
 
-    var running = Input.is_action_pressed("sprint") && stamina > 0.0
-    var target_speed = running ? sprint_speed : move_speed
+func _spawn_collectibles() -> void:
+    for i in range(10):
+        var orb = MeshInstance3D.new()
+        var mesh = SphereMesh.new()
+        mesh.radius = 0.4
+        mesh.height = 0.8
+        orb.mesh = mesh
+        orb.position = Vector3(-24 + i * 5, 1.2, 18 + (i % 2) * 8)
+        var mat = StandardMaterial3D.new()
+        mat.albedo_color = Color(0.4, 0.9, 1.0, 1.0)
+        mat.emission_enabled = true
+        mat.emission = Color(0.2, 0.8, 1.0, 1.0)
+        mat.emission_energy_multiplier = 0.8
+        orb.material_override = mat
+        orb.add_to_group("collectibles")
+        add_child(orb)
 
-    if direction.length() > 0.05:
-        var look_target = global_position + direction
-        look_at(look_target, Vector3.UP)
-        rotation.x = 0.0
-        rotation.z = 0.0
-        velocity.x = direction.x * target_speed
-        velocity.z = direction.z * target_speed
-    else:
-        velocity.x = move_toward(velocity.x, 0.0, target_speed)
-        velocity.z = move_toward(velocity.z, 0.0, target_speed)
+func _spawn_enemies() -> void:
+    _spawn_enemy("melee", Vector3(14, 1, 4))
+    _spawn_enemy("ranged", Vector3(-18, 1, -5))
+    _spawn_enemy("fast", Vector3(28, 1, -16))
+    _spawn_enemy("tank", Vector3(-12, 1, 26))
+    _spawn_enemy("flying", Vector3(16, 4, -27))
+    _spawn_enemy("elite", Vector3(-30, 1, 16))
+    _spawn_enemy("melee", Vector3(6, 1, 24))
+    _spawn_enemy("ranged", Vector3(34, 1, 12))
+    boss_ref = _spawn_boss(Vector3(0, 1, -31))
 
-    if Input.is_action_just_pressed("jump"):
-        if is_on_floor():
-            velocity.y = jump_force
-            double_jump_ready = true
-        elif double_jump_ready:
-            velocity.y = jump_force * 1.1
-            double_jump_ready = false
+func _spawn_enemy(type_name: String, pos: Vector3) -> void:
+    var enemy_scene = load("res://scenes/Enemy.tscn")
+    var enemy = enemy_scene.instantiate()
+    enemy.position = pos
+    enemy.type = type_name
+    enemy.player_reference = player_ref
+    enemy.name = "%sEnemy_%d" % [type_name, enemy_count]
+    enemy_count += 1
+    add_child(enemy)
 
-    if running:
-        stamina = max(0.0, stamina - 18.0 * delta)
-    else:
-        stamina = min(stamina_max, stamina + 12.0 * delta)
-
-    if Input.is_action_just_pressed("dodge"):
-        var dodge_dir = direction
-        if dodge_dir.length() < 0.1:
-            dodge_dir = -transform.basis.z
-        velocity.x = dodge_dir.x * 14.0
-        velocity.z = dodge_dir.z * 14.0
-
-    if not is_on_floor():
-        velocity.y -= gravity * delta
-    else:
-        velocity.y = min(velocity.y, 0.0)
-
-func _handle_attacks(delta: float) -> void:
-    if is_attacking:
-        attack_timer -= delta
-        sword_trail.visible = true
-        if attack_timer <= 0.0:
-            is_attacking = false
-            sword_trail.visible = false
-
-    if Input.is_action_just_pressed("attack") && not is_attacking:
-        _trigger_attack(attack_damage, 0.38)
-    elif Input.is_action_just_pressed("heavy_attack") && not is_attacking:
-        _trigger_attack(heavy_damage, 0.65)
-
-func _trigger_attack(damage: float, duration: float) -> void:
-    is_attacking = true
-    attack_timer = duration
-    sword_trail.visible = true
-    var hitbox_radius = attack_range
-    var space = get_world_3d().direct_space_state
-    var query = PhysicsShapeQueryParameters3D.new()
-    var shape = SphereShape3D.new()
-    shape.radius = hitbox_radius
-    query.shape = shape
-    query.transform = Transform3D(Basis(), global_position + transform.basis.z * 1.4)
-    query.collision_mask = 1
-    var result = space.intersect_shape(query, 32)
-    for hit in result:
-        var body = hit.get("collider")
-        if body and body.has_method("apply_damage") and body != self:
-            body.apply_damage(damage)
-    pass
-
-func _handle_interaction() -> void:
-    if Input.is_action_just_pressed("interact"):
-        var targets = get_tree().get_nodes_in_group("collectibles")
-        for item in targets:
-            if item.global_position.distance_to(global_position) < 3.0:
-                inventory.append(item.name)
-                item.queue_free()
-                xp += 10
-                xp_changed.emit(xp)
-                break
-
-func apply_damage(amount: float) -> void:
-    health = max(0.0, health - amount)
-    health_changed.emit(health)
-    if health <= 0.0:
-        died.emit()
-        print("Player defeated")
-
-func add_xp(amount: float) -> void:
-    xp += amount
-    while xp >= 100.0:
-        xp -= 100.0
-        level += 1
-        level_up.emit(level)
-    xp_changed.emit(xp)
-
-func save_data() -> Dictionary:
-    return {
-        "health": health,
-        "max_health": max_health,
-        "level": level,
-        "xp": xp,
-        "inventory": inventory,
-        "stamina": stamina,
-        "position": {"x": global_position.x, "y": global_position.y, "z": global_position.z}
-    }
-
-func load_data(data: Dictionary) -> void:
-    health = data.get("health", health)
-    level = data.get("level", level)
-    xp = data.get("xp", xp)
-    inventory = data.get("inventory", inventory)
-    stamina = data.get("stamina", stamina_max)
-    var pos = data.get("position", {})
-    if pos.size() > 0:
-        global_position = Vector3(float(pos.get("x", 0.0)), float(pos.get("y", 0.0)), float(pos.get("z", 0.0)))
+func _spawn_boss(pos: Vector3) -> CharacterBody3D:
+    var boss_scene = load("res://scenes/Boss.tscn")
+    var boss = boss_scene.instantiate()
+    boss.position = pos
+    boss.player_reference = player_ref
+    boss.name = "BossWarden"
+    add_child(boss)
+    return boss

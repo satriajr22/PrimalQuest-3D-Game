@@ -1,23 +1,20 @@
-# PrimalQuest 3D
+extends Node
 
-PrimalQuest 3D is a fully offline single-player action-adventure prototype built for Godot 4. It focuses on a polished combat loop, exploration, save system, enemy AI, quest progression, and layered world design without any online dependency.
+signal quest_updated(title, description, progress)
 
-Features:
-- Third-person action movement
-- Sprint, jump, double jump, dodge, dodge roll, attack, heavy attack
-- Quest and progression systems
-- Enemy patrol/chase/attack behaviors
-- Boss phase combat
-- Inventory and save system
-- World generation using built-in placeholder geometry
-- Offline-only design
+var quest_data = {
+    "intro": {"title": "Awakening", "description": "Reach the old city and secure your footing.", "progress": 0.0, "goal": 1.0},
+    "forest": {"title": "Forest Whisper", "description": "Clear the forest outposts.", "progress": 0.0, "goal": 5.0},
+    "village": {"title": "Abandoned Village", "description": "Explore ruined homes and recover the relics.", "progress": 0.0, "goal": 3.0},
+    "boss": {"title": "The Core Warden", "description": "Defeat the guardian of the mountain vault.", "progress": 0.0, "goal": 1.0}
+}
 
-How to run:
-1. Open this folder in Godot 4.x.
-2. Import the project.
-3. Press F5 or use the Play button.
-4. Use WASD to move, Shift to sprint, Space to jump, Left Click to attack, Right Click for heavy attack, E to interact, Esc to pause.
+func update_quest(key: String, progress: float) -> void:
+    if not quest_data.has(key):
+        return
+    quest_data[key]["progress"] = clamp(progress, 0.0, quest_data[key]["goal"])
+    var amount = quest_data[key]["progress"] / quest_data[key]["goal"]
+    emit_signal("quest_updated", quest_data[key]["title"], quest_data[key]["description"], amount)
 
-Notes:
-- This is a complete playable prototype with modular structure ready for asset replacement.
-- All systems are designed to be local and work without internet or external services.
+func get_quest_snapshot() -> Dictionary:
+    return quest_data.duplicate(true)
