@@ -1,79 +1,77 @@
-extends CharacterBody3D
+extends Node3D
 
-signal boss_phase_changed(phase)
+@onready var player: CharacterBody3D = $Player
+@onready var world: Node3D = $World
+@onready var hud: CanvasLayer = $HUD
 
-var player_reference: CharacterBody3D
-var phase: int = 1
-var max_health: float = 220.0
-var health: float = 220.0
-var speed: float = 2.6
-var attack_damage: float = 18.0
-var detection_range: float = 18.0
-var attack_cooldown: float = 0.0
-var alive: bool = true
+var paused: bool = false
 
 func _ready() -> void:
-    add_to_group("boss")
+    if player:
+        player.add_to_group("player")
+        player.connect("health_changed", Callable(self, "_on_player_health_changed"))
+        player.connect("xp_changed", Callable(self, "_on_player_xp_changed"))
+        player.connect("level_up", Callable(self, "_on_player_level_up"))
+        player.connect("died", Callable(self, "_on_player_died"))
+        player.connect("inventory_changed", Callable(self, "_on_inventory_changed"))
 
-func _physics_process(delta: float) -> void:
-    if not alive:
-        return
+    if world:
+        world.initialize(player)
 
-    var player = player_reference if player_reference else get_tree().get_first_node_in_group("player")
-    if player == null:
-        return
+    if hud:
+        hud.set_player(player)
 
-    var distance = global_position.distance_to(player.global_position)
-    if distance < detection_range:
-        var dir = player.global_position - global_position
-        dir.y = 0
-        if dir.length() > 0.1:
-            dir = dir.normalized()
-            if distance > 3.2:
-                velocity.x = dir.x * speed
-                velocity.z = dir.z * speed
-            else:
-                velocity.x = move_toward(velocity.x, 0.0, 14.0)
-                velocity.z = move_toward(velocity.z, 0.0, 14.0)
-            look_at(player.global_position, Vector3.UP)
+func _on_player_health_changed(value: float) -> void:
+    if hud:
+        hud.update_health(value)
 
-        attack_cooldown -= delta
-        if distance < 3.2 and attack_cooldown <= 0.0:
-            if player.has_method("apply_damage"):
-                player.apply_damage(attack_damage)
-            attack_cooldown = 1.3
+func _on_player_xp_changed(value: float) -> void:
+    if hud:
+        hud.update_xp(value)
 
-        if health < max_health * 0.7 and phase == 1:
-            phase = 2
-            speed = 3.8
-            attack_damage = 26.0
-            boss_phase_changed.emit(phase)
-        elif health < max_health * 0.35 and phase == 2:
-            phase = 3
-            speed = 4.6
-            attack_damage = 34.0
-            boss_phase_changed.emit(phase)
-    else:
-        velocity.x = move_toward(velocity.x, 0.0, 8.0)
-        velocity.z = move_toward(velocity.z, 0.0, 8.0)
+func _on_player_level_up(level: int) -> void:
+    print("Level Up: %s" % level)
+    if hud:
+        hud.notify("Level Up! Now at level %s" % level)
 
-    if not is_on_floor():
-        velocity.y -= 22.0 * delta
-    else:
-        velocity.y = min(velocity.y, 0.0)
+func _on_player_died() -> void:
+    print("Player Defeated")
+    if hud:
+        hud.notify("You were defeated. Try again.")
 
-    move_and_slide()
+func _on_inventory_changed(items: Array) -> void:
+    if hud:
+        hud.refresh_inventory(items)
 
-func apply_damage(amount: float) -> void:
-    if not alive:
-        return
-    health -= amount
-    if health <= 0.0:
-        alive = false
-        var player = player_reference if player_reference else get_tree().get_first_node_in_group("player")
-        if player and player.has_method("add_xp"):
-            player.add_xp(300.0)
-        queue_free()
+func _unhandled_input(event: InputEvent) -> void:
+    if event.is_action_pressed("pause"):
+        _toggle_pause()
+    elif event.is_action_pressed("inventory"):
+        if hud:
+            hud.toggle_inventory()
+    elif event.is_action_pressed("save"):
+        _save_game()
+    elif event.is_action_pressed("ultimate"):
+        if player and player.has_method("activate_ultimate"):
+            player.activate_ultimate()
+    elif event.is_action_pressed("special"):
+        if player and player.has_method("activate_special"):
+            player.activate_special()
 
-func get_health_ratio() -> float:
-    return clamp(health / max_health, 0.0, 1.0)
+func _toggle_pause() -> void:
+    paused = !paused
+    if hud:
+        hud.toggle_pause_menu(paused)
+    get_tree().paused = paused
+
+func _save_game() -> void:
+    var payload = SaveManager.save_game(player, world, QuestSystem.get_quest_snapshot())
+    if hud:
+        hud.notify("Progress saved locally.")
+    print("Saved: %s" % payload)
+
+func _ready_after() -> void:
+    if SaveManager:
+        var data = SaveManager.load_game()
+        if data.size() > 0 and player and player.has_method("load_data"):
+            player.load_data(data.get("player", {}))
