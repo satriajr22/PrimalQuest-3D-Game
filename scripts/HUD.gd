@@ -7,6 +7,8 @@ extends Node3D
 var paused: bool = false
 
 func _ready() -> void:
+    if GameManager:
+        GameManager.reset()
     if player:
         player.add_to_group("player")
         player.connect("health_changed", Callable(self, "_on_player_health_changed"))
@@ -14,12 +16,25 @@ func _ready() -> void:
         player.connect("level_up", Callable(self, "_on_player_level_up"))
         player.connect("died", Callable(self, "_on_player_died"))
         player.connect("inventory_changed", Callable(self, "_on_inventory_changed"))
-
     if world:
         world.initialize(player)
-
     if hud:
         hud.set_player(player)
+    _load_saved_progress()
+
+func _load_saved_progress() -> void:
+    var data = SaveManager.load_game()
+    if data.is_empty():
+        return
+    var player_data = data.get("player", {})
+    if player != null and player.has_method("load_data"):
+        player.load_data(player_data)
+    var quest_snapshot = data.get("quests", {})
+    if quest_snapshot.size() > 0 and QuestSystem:
+        QuestSystem.quest_data = quest_snapshot
+    if GameManager and data.has("world"):
+        var world_data = data.get("world", {})
+        GameManager.set_area(world_data.get("location", "City"))
 
 func _on_player_health_changed(value: float) -> void:
     if hud:
@@ -30,12 +45,12 @@ func _on_player_xp_changed(value: float) -> void:
         hud.update_xp(value)
 
 func _on_player_level_up(level: int) -> void:
-    print("Level Up: %s" % level)
     if hud:
         hud.notify("Level Up! Now at level %s" % level)
+    if QuestSystem:
+        QuestSystem.advance_quest("intro", 1.0)
 
 func _on_player_died() -> void:
-    print("Player Defeated")
     if hud:
         hud.notify("You were defeated. Try again.")
 
@@ -69,9 +84,3 @@ func _save_game() -> void:
     if hud:
         hud.notify("Progress saved locally.")
     print("Saved: %s" % payload)
-
-func _ready_after() -> void:
-    if SaveManager:
-        var data = SaveManager.load_game()
-        if data.size() > 0 and player and player.has_method("load_data"):
-            player.load_data(data.get("player", {}))

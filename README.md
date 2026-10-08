@@ -11,6 +11,7 @@ SaveManager="*res://scripts/SaveManager.gd"
 QuestSystem="*res://scripts/QuestSystem.gd"
 InventorySystem="*res://scripts/InventorySystem.gd"
 SettingsSystem="*res://scripts/SettingsSystem.gd"
+GameManager="*res://scripts/GameManager.gd"
 
 [input]
 move_forward={

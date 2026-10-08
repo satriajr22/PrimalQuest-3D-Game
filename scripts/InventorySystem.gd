@@ -1,36 +1,50 @@
 extends Node
 
-const SAVE_PATH: String = "user://primalquest_save.json"
+signal quest_updated(title, description, progress)
+signal quest_completed(quest_key)
 
-func save_game(player: Node, world: Node, quests: Dictionary) -> Dictionary:
-    var payload = {
-        "player": player.has_method("save_data") ? player.save_data() : {},
-        "world": {
-            "location": "City District",
-            "boss_defeated": false
-        },
-        "quests": quests
-    }
+var quest_data = {
+    "intro": {"title": "Awakening", "description": "Reach the old city and secure your footing.", "progress": 0.0, "goal": 1.0, "complete": false},
+    "forest": {"title": "Forest Whisper", "description": "Clear the forest outposts.", "progress": 0.0, "goal": 5.0, "complete": false},
+    "village": {"title": "Abandoned Village", "description": "Explore ruined homes and recover the relics.", "progress": 0.0, "goal": 3.0, "complete": false},
+    "boss": {"title": "The Core Warden", "description": "Defeat the guardian of the mountain vault.", "progress": 0.0, "goal": 1.0, "complete": false}
+}
+var active_key: String = "intro"
 
-    var file = FileAccess.open(SAVE_PATH, FileAccess.WRITE)
-    if file:
-        file.store_string(JSON.stringify(payload, "\t"))
-        file.close()
+func set_active_quest(key: String) -> void:
+    if quest_data.has(key):
+        active_key = key
 
-    return payload
+func update_quest(key: String, progress: float) -> void:
+    if not quest_data.has(key):
+        return
+    quest_data[key]["progress"] = clamp(progress, 0.0, quest_data[key]["goal"])
+    if quest_data[key]["progress"] >= quest_data[key]["goal"]:
+        quest_data[key]["complete"] = true
+        emit_signal("quest_completed", key)
+    var amount = quest_data[key]["progress"] / quest_data[key]["goal"]
+    emit_signal("quest_updated", quest_data[key]["title"], quest_data[key]["description"], amount)
 
-func load_game() -> Dictionary:
-    if not FileAccess.file_exists(SAVE_PATH):
-        return {}
+func advance_quest(key: String, delta: float = 1.0) -> void:
+    if not quest_data.has(key):
+        return
+    update_quest(key, quest_data[key]["progress"] + delta)
 
-    var file = FileAccess.open(SAVE_PATH, FileAccess.READ)
-    if file == null:
-        return {}
+func get_current_quest() -> Dictionary:
+    if quest_data.has(active_key):
+        return quest_data[active_key]
+    return {}
 
-    var text = file.get_as_text()
-    file.close()
-    var json = JSON.new()
-    var err = json.parse(text)
-    if err != OK:
-        return {}
-    return json.data
+func get_quest_snapshot() -> Dictionary:
+    return quest_data.duplicate(true)
+
+func reset_all() -> void:
+    for key in quest_data.keys():
+        quest_data[key]["progress"] = 0.0
+        quest_data[key]["complete"] = false
+    active_key = "intro"
+
+func claim_quest_reward(key: String) -> void:
+    if quest_data.has(key):
+        quest_data[key]["complete"] = true
+        emit_signal("quest_completed", key)
