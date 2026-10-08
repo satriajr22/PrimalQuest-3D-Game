@@ -1,68 +1,80 @@
-extends Node
+extends Node3D
 
-signal world_state_changed(area_name, state)
-signal achievement_unlocked(name)
+@onready var player: CharacterBody3D = $Player
+@onready var world: Node3D = $World
+@onready var hud: CanvasLayer = $HUD
 
-var unlocked_areas: Dictionary = {
-    "City": true,
-    "Forest": false,
-    "Village": false,
-    "Cavern": false,
-    "Boss Arena": false,
-}
-var world_state: Dictionary = {
-    "kills": 0,
-    "fire_totems": 0,
-    "boss_defeated": false,
-    "current_area": "City",
-}
-var achievements: Dictionary = {
-    "first_blood": false,
-    "forest_warden": false,
-    "ruin_explorer": false,
-    "boss_breaker": false,
-}
+var paused: bool = false
 
-func set_area(area_name: String) -> void:
-    world_state["current_area"] = area_name
-    if unlocked_areas.has(area_name):
-        unlocked_areas[area_name] = true
-    emit_signal("world_state_changed", area_name, world_state)
+func _ready() -> void:
+    if GameManager:
+        GameManager.reset()
+    if player:
+        player.add_to_group("player")
+        player.connect("health_changed", Callable(self, "_on_player_health_changed"))
+        player.connect("xp_changed", Callable(self, "_on_player_xp_changed"))
+        player.connect("level_up", Callable(self, "_on_player_level_up"))
+        player.connect("died", Callable(self, "_on_player_died"))
+        player.connect("inventory_changed", Callable(self, "_on_inventory_changed"))
+    if world:
+        world.initialize(player)
+    if hud:
+        hud.set_player(player)
+    _load_saved_progress()
 
-func register_kill() -> void:
-    world_state["kills"] += 1
-    if not achievements["first_blood"]:
-        achievements["first_blood"] = true
-        emit_signal("achievement_unlocked", "first_blood")
+func _load_saved_progress() -> void:
+    var data = SaveManager.load_game()
+    if data.is_empty():
+        return
+    var player_data = data.get("player", {})
+    if player != null and player.has_method("load_data"):
+        player.load_data(player_data)
+    var quest_snapshot = data.get("quests", {})
+    if quest_snapshot.size() > 0 and QuestSystem:
+        QuestSystem.quest_data = quest_snapshot
+    if GameManager and data.has("world"):
+        var world_data = data.get("world", {})
+        GameManager.set_area(world_data.get("location", "City"))
 
-func register_boss_defeat() -> void:
-    world_state["boss_defeated"] = true
-    achievements["boss_breaker"] = true
-    emit_signal("achievement_unlocked", "boss_breaker")
+func _on_player_health_changed(value: float) -> void:
+    if hud:
+        hud.update_health(value)
 
-func unlock_area(area_name: String) -> void:
-    unlocked_areas[area_name] = true
+func _on_player_xp_changed(value: float) -> void:
+    if hud:
+        hud.update_xp(value)
 
-func get_state() -> Dictionary:
-    return world_state.duplicate(true)
+func _on_player_level_up(level: int) -> void:
+    if hud:
+        hud.notify("Level Up! Now at level %s" % level)
+    if QuestSystem:
+        QuestSystem.advance_quest("intro", 1.0)
 
-func reset() -> void:
-    unlocked_areas = {
-        "City": true,
-        "Forest": false,
-        "Village": false,
-        "Cavern": false,
-        "Boss Arena": false,
-    }
-    world_state = {
-        "kills": 0,
-        "fire_totems": 0,
-        "boss_defeated": false,
-        "current_area": "City",
-    }
-    achievements = {
-        "first_blood": false,
-        "forest_warden": false,
-        "ruin_explorer": false,
-        "boss_breaker": false,
-    }
+func _on_player_died() -> void:
+    if hud:
+        hud.notify("You were defeated. Try again.")
+
+func _on_inventory_changed(items: Array) -> void:
+    if hud:
+        hud.refresh_inventory(items)
+
+func _unhandled_input(event: InputEvent) -> void:
+    if event.is_action_pressed("pause"):
+        _toggle_pause()
+    elif event.is_action_pressed("inventory"):
+        if hud:
+            hud.toggle_inventory()
+    elif event.is_action_pressed("save"):
+        _save_game()
+
+func _toggle_pause() -> void:
+    paused = !paused
+    if hud:
+        hud.toggle_pause_menu(paused)
+    get_tree().paused = paused
+
+func _save_game() -> void:
+    var payload = SaveManager.save_game(player, world, QuestSystem.get_quest_snapshot())
+    if hud:
+        hud.notify("Progress saved locally.")
+    print("Game saved successfully")

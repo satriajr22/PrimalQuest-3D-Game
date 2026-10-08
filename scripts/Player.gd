@@ -1,121 +1,285 @@
-extends Node3D
+extends CharacterBody3D
 
-var player_ref: CharacterBody3D
-var enemy_count: int = 0
-var boss_ref: CharacterBody3D
+signal health_changed(new_health)
+signal xp_changed(value)
+signal level_up(level)
+signal died
+signal inventory_changed(items)
 
-func initialize(player: CharacterBody3D) -> void:
-    player_ref = player
-    _build_world()
-    _spawn_enemies()
-    _spawn_collectibles()
+@export var max_health: float = 100.0
+@export var stamina_max: float = 100.0
+@export var move_speed: float = 6.0
+@export var sprint_speed: float = 10.0
+@export var jump_force: float = 7.5
+@export var gravity: float = 24.0
+@export var attack_damage: float = 12.0
+@export var heavy_damage: float = 24.0
+@export var attack_range: float = 2.5
 
-func _build_world() -> void:
-    var ground = MeshInstance3D.new()
-    var ground_mesh = BoxMesh.new()
-    ground_mesh.size = Vector3(220, 1, 220)
-    ground.mesh = ground_mesh
-    ground.position = Vector3(0, -0.5, 0)
-    add_child(ground)
-    ground.name = "Ground"
+var health: float = max_health
+var stamina: float = stamina_max
+var xp: float = 0.0
+var level: int = 1
+var double_jump_ready: bool = false
+var is_attacking: bool = false
+var combo_index: int = 0
+var attack_timer: float = 0.0
+var dodge_timer: float = 0.0
+var inventory: Array = ["Rusty Blade", "Field Kit"]
+var special_charge: float = 0.0
+var ultimate_charge: float = 0.0
+var is_blocking: bool = false
+var can_parry: bool = false
+var current_area: String = "City"
+var equipment: Dictionary = {"weapon": "Rusty Blade", "armor": "Leather Vest"}
+var skills: Dictionary = {"slash": 1, "whirlwind": 0, "berserk": 0}
 
-    _add_area("City", Vector3(-25, 0, 0), Vector3(30, 2, 30), Color(0.18, 0.2, 0.25, 0.22))
-    _add_area("Forest", Vector3(25, 0, -18), Vector3(28, 2, 28), Color(0.12, 0.42, 0.18, 0.22))
-    _add_area("Village", Vector3(30, 0, 22), Vector3(24, 2, 24), Color(0.42, 0.38, 0.28, 0.22))
-    _add_area("Cavern", Vector3(-30, 0, 28), Vector3(18, 2, 18), Color(0.15, 0.15, 0.2, 0.22))
-    _add_area("BossArena", Vector3(0, 0, -30), Vector3(18, 2, 18), Color(0.65, 0.12, 0.12, 0.24))
+@onready var camera_pivot: Node3D = $CameraPivot
+@onready var camera: Camera3D = $CameraPivot/SpringArm3D/Camera3D
+@onready var sword_trail: MeshInstance3D = $SwordTrail
 
-    for i in range(10):
-        var building = MeshInstance3D.new()
-        var box = BoxMesh.new()
-        box.size = Vector3(2.6, 8.0, 2.6)
-        building.mesh = box
-        building.position = Vector3(-24 + (i % 4) * 7, 4.0, -10 + (i / 4) * 6)
-        var mat = StandardMaterial3D.new()
-        mat.albedo_color = Color(0.5, 0.58, 0.72, 1.0)
-        building.material_override = mat
-        add_child(building)
-        building.name = "DecorBuilding_%s" % i
+func _ready() -> void:
+    add_to_group("player")
+    _sync_state()
+    Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
-    for i in range(6):
-        _add_tree(Vector3(10 + i * 7, 1, -14), 2.0 + (i % 3) * 0.5)
-        _add_tree(Vector3(-16 + i * 5, 1, 18), 1.8 + (i % 2) * 0.8)
+func _sync_state() -> void:
+    health_changed.emit(health)
+    xp_changed.emit(xp)
+    inventory_changed.emit(inventory)
 
-func _add_area(area_name: String, pos: Vector3, size: Vector3, color: Color) -> MeshInstance3D:
-    var area = MeshInstance3D.new()
-    var mesh = BoxMesh.new()
-    mesh.size = size
-    area.mesh = mesh
-    area.position = pos
-    area.material_override = StandardMaterial3D.new()
-    area.material_override.albedo_color = color
-    area.material_override.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-    add_child(area)
-    area.name = "Area_%s" % area_name
-    return area
+func _unhandled_input(event: InputEvent) -> void:
+    if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+        camera_pivot.rotation.x = clamp(camera_pivot.rotation.x - event.relative.y * 0.0014, -1.2, 1.2)
+        rotation.y -= event.relative.x * 0.0022
 
-func _add_tree(pos: Vector3, scale_value: float) -> void:
-    var trunk = MeshInstance3D.new()
-    var trunk_mesh = CylinderMesh.new()
-    trunk_mesh.height = 3.2
-    trunk_mesh.top_radius = 0.22
-    trunk_mesh.bottom_radius = 0.28
-    trunk.mesh = trunk_mesh
-    trunk.position = pos
-    trunk.scale = Vector3(0.45 * scale_value, 1.0, 0.45 * scale_value)
-    add_child(trunk)
+func _physics_process(delta: float) -> void:
+    if health <= 0.0:
+        return
 
-    var leaves = MeshInstance3D.new()
-    var sphere = SphereMesh.new()
-    sphere.radius = 1.2 * scale_value
-    sphere.height = 2.4 * scale_value
-    leaves.mesh = sphere
-    leaves.position = pos + Vector3(0, 2.2, 0)
-    add_child(leaves)
+    _handle_movement(delta)
+    _handle_attacks(delta)
+    _handle_dodge(delta)
+    _handle_specials(delta)
+    _update_area_state()
+    move_and_slide()
 
-func _spawn_collectibles() -> void:
-    for i in range(10):
-        var orb = MeshInstance3D.new()
-        var mesh = SphereMesh.new()
-        mesh.radius = 0.4
-        mesh.height = 0.8
-        orb.mesh = mesh
-        orb.position = Vector3(-24 + i * 5, 1.2, 18 + (i % 2) * 8)
-        var mat = StandardMaterial3D.new()
-        mat.albedo_color = Color(0.4, 0.9, 1.0, 1.0)
-        mat.emission_enabled = true
-        mat.emission = Color(0.2, 0.8, 1.0, 1.0)
-        mat.emission_energy_multiplier = 0.8
-        orb.material_override = mat
-        orb.add_to_group("collectibles")
-        add_child(orb)
+func _update_area_state() -> void:
+    var pos = global_position
+    if pos.x < -20 and pos.z > 20:
+        current_area = "Cavern"
+    elif pos.x > 20 and pos.z < -10:
+        current_area = "Forest"
+    elif pos.x > 20 and pos.z > 15:
+        current_area = "Village"
+    elif pos.z < -22:
+        current_area = "Boss Arena"
+    else:
+        current_area = "City"
 
-func _spawn_enemies() -> void:
-    _spawn_enemy("melee", Vector3(14, 1, 4))
-    _spawn_enemy("ranged", Vector3(-18, 1, -5))
-    _spawn_enemy("fast", Vector3(28, 1, -16))
-    _spawn_enemy("tank", Vector3(-12, 1, 26))
-    _spawn_enemy("flying", Vector3(16, 4, -27))
-    _spawn_enemy("elite", Vector3(-30, 1, 16))
-    _spawn_enemy("melee", Vector3(6, 1, 24))
-    _spawn_enemy("ranged", Vector3(34, 1, 12))
-    boss_ref = _spawn_boss(Vector3(0, 1, -31))
+func _handle_movement(delta: float) -> void:
+    var input_vec = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+    var move_dir = Vector3(input_vec.x, 0, input_vec.y)
+    if move_dir.length() > 0.05:
+        move_dir = move_dir.normalized()
+        var desired_basis = Basis(Vector3.UP, rotation.y)
+        var world_move = desired_basis * move_dir
+        var sprinting = Input.is_action_pressed("sprint") && stamina > 0.0
+        var target_speed = sprinting ? sprint_speed : move_speed
 
-func _spawn_enemy(type_name: String, pos: Vector3) -> void:
-    var enemy_scene = load("res://scenes/Enemy.tscn")
-    var enemy = enemy_scene.instantiate()
-    enemy.position = pos
-    enemy.type = type_name
-    enemy.player_reference = player_ref
-    enemy.name = "%sEnemy_%d" % [type_name, enemy_count]
-    enemy_count += 1
-    add_child(enemy)
+        velocity.x = world_move.x * target_speed
+        velocity.z = world_move.z * target_speed
 
-func _spawn_boss(pos: Vector3) -> CharacterBody3D:
-    var boss_scene = load("res://scenes/Boss.tscn")
-    var boss = boss_scene.instantiate()
-    boss.position = pos
-    boss.player_reference = player_ref
-    boss.name = "BossWarden"
-    add_child(boss)
-    return boss
+        if sprinting:
+            stamina = max(0.0, stamina - 18.0 * delta)
+            if camera:
+                camera.fov = lerp(camera.fov, 86.0, 0.1)
+        else:
+            stamina = min(stamina_max, stamina + 12.0 * delta)
+            if camera:
+                camera.fov = lerp(camera.fov, 75.0, 0.1)
+
+        var look_target = global_position + world_move.normalized()
+        look_at(look_target, Vector3.UP)
+        rotation.x = 0.0
+        rotation.z = 0.0
+    else:
+        velocity.x = move_toward(velocity.x, 0.0, move_speed)
+        velocity.z = move_toward(velocity.z, 0.0, move_speed)
+        stamina = min(stamina_max, stamina + 14.0 * delta)
+
+    if Input.is_action_just_pressed("jump"):
+        if is_on_floor():
+            velocity.y = jump_force
+            double_jump_ready = true
+        elif double_jump_ready:
+            velocity.y = jump_force * 1.1
+            double_jump_ready = false
+
+    if Input.is_action_pressed("block"):
+        is_blocking = true
+        stamina = max(0.0, stamina - 12.0 * delta)
+    else:
+        is_blocking = false
+
+    if not is_on_floor():
+        velocity.y -= gravity * delta
+    else:
+        velocity.y = min(velocity.y, 0.0)
+        double_jump_ready = false
+
+func _handle_attacks(delta: float) -> void:
+    if is_attacking:
+        attack_timer -= delta
+        sword_trail.visible = true
+        if attack_timer <= 0.0:
+            is_attacking = false
+            sword_trail.visible = false
+
+    if Input.is_action_just_pressed("attack") and not is_attacking:
+        var dmg = attack_damage
+        combo_index += 1
+        if combo_index > 3:
+            combo_index = 1
+        if combo_index == 3:
+            dmg *= 1.4
+        _trigger_attack(dmg, 0.36)
+
+    if Input.is_action_just_pressed("heavy_attack") and not is_attacking:
+        _trigger_attack(heavy_damage, 0.58)
+
+    if Input.is_action_just_pressed("parry"):
+        can_parry = true
+    elif Input.is_action_just_released("parry"):
+        can_parry = false
+
+func _trigger_attack(damage: float, duration: float) -> void:
+    is_attacking = true
+    attack_timer = duration
+    sword_trail.visible = true
+    special_charge = clamp(special_charge + 10.0, 0.0, 100.0)
+
+    var target_pos = global_position + (-transform.basis.z * 1.7)
+    var space = get_world_3d().direct_space_state
+    var query = PhysicsShapeQueryParameters3D.new()
+    var shape = SphereShape3D.new()
+    shape.radius = attack_range
+    query.shape = shape
+    query.transform = Transform3D(Basis(), target_pos)
+    query.collision_mask = 1
+    var hits = space.intersect_shape(query, 8)
+
+    for hit in hits:
+        var body = hit.get("collider")
+        if body and body != self and body.has_method("apply_damage"):
+            body.apply_damage(damage)
+
+func _handle_dodge(delta: float) -> void:
+    if dodge_timer > 0.0:
+        dodge_timer -= delta
+    if Input.is_action_just_pressed("dodge"):
+        var dir = Vector3.ZERO
+        if velocity.length() > 0.1:
+            dir = velocity.normalized()
+        else:
+            dir = -transform.basis.z
+        velocity.x = dir.x * 12.5
+        velocity.z = dir.z * 12.5
+        dodge_timer = 0.25
+
+func _handle_specials(delta: float) -> void:
+    if Input.is_action_just_pressed("ultimate") and ultimate_charge >= 100.0:
+        activate_ultimate()
+        ultimate_charge = 0.0
+    if Input.is_action_just_pressed("special") and special_charge >= 50.0:
+        activate_special()
+        special_charge = 0.0
+
+    special_charge = clamp(special_charge + delta * 8.0, 0.0, 100.0)
+    ultimate_charge = clamp(ultimate_charge + delta * 4.0, 0.0, 100.0)
+
+func activate_special() -> void:
+    var enemies = get_tree().get_nodes_in_group("enemies")
+    for enemy in enemies:
+        if enemy.global_position.distance_to(global_position) < 8.0 and enemy.has_method("apply_damage"):
+            enemy.apply_damage(25.0)
+
+func activate_ultimate() -> void:
+    var boss = get_tree().get_first_node_in_group("boss")
+    if boss and boss.has_method("apply_damage"):
+        boss.apply_damage(60.0)
+    var enemies = get_tree().get_nodes_in_group("enemies")
+    for enemy in enemies:
+        if enemy.global_position.distance_to(global_position) < 10.0 and enemy.has_method("apply_damage"):
+            enemy.apply_damage(40.0)
+
+func apply_damage(amount: float) -> void:
+    if health <= 0.0:
+        return
+    var protection = 0.0
+    if is_blocking and stamina > 0.0:
+        protection = 0.55
+    health = max(0.0, health - (amount * (1.0 - protection)))
+    health_changed.emit(health)
+    if health <= 0.0:
+        died.emit()
+
+func add_xp(amount: float) -> void:
+    xp += amount
+    while xp >= 100.0:
+        xp -= 100.0
+        level += 1
+        level_up.emit(level)
+    xp_changed.emit(xp)
+
+func add_item(item_name: String) -> void:
+    inventory.append(item_name)
+    inventory_changed.emit(inventory)
+
+func equip_item(item_name: String) -> void:
+    if inventory.has(item_name):
+        if "weapon" in item_name.to_lower():
+            equipment["weapon"] = item_name
+        else:
+            equipment["armor"] = item_name
+
+func learn_skill(skill_name: String) -> void:
+    if skill_name in skills:
+        skills[skill_name] = 1
+
+func save_data() -> Dictionary:
+    return {
+        "health": health,
+        "max_health": max_health,
+        "stamina": stamina,
+        "xp": xp,
+        "level": level,
+        "inventory": inventory,
+        "equipment": equipment,
+        "skills": skills,
+        "special_charge": special_charge,
+        "ultimate_charge": ultimate_charge,
+        "current_area": current_area,
+        "position": {"x": global_position.x, "y": global_position.y, "z": global_position.z}
+    }
+
+func load_data(data: Dictionary) -> void:
+    health = clamp(data.get("health", health), 0.0, max_health)
+    stamina = clamp(data.get("stamina", stamina), 0.0, stamina_max)
+    xp = data.get("xp", xp)
+    level = int(data.get("level", level))
+    inventory = data.get("inventory", inventory)
+    equipment = data.get("equipment", equipment)
+    skills = data.get("skills", skills)
+    special_charge = clamp(data.get("special_charge", special_charge), 0.0, 100.0)
+    ultimate_charge = clamp(data.get("ultimate_charge", ultimate_charge), 0.0, 100.0)
+    current_area = data.get("current_area", current_area)
+    var pos = data.get("position", {})
+    if pos and pos.size() > 0:
+        global_position = Vector3(float(pos.get("x", 0.0)), float(pos.get("y", 0.0)), float(pos.get("z", 0.0)))
+    _sync_state()
+
+func get_inventory_snapshot() -> String:
+    if inventory.size() == 0:
+        return "Empty"
+    return ", ".join(inventory)
