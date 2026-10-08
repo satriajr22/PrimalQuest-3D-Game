@@ -1,0 +1,9 @@
+# Godot ignores build artifacts and editor cache.
+**/.godot/
+**/.import/
+**/export_presets.cfg
+**/*.translation
+**/*.tmp
+**/*.log
+**/*.import
+**/*.import.meta

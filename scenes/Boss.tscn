@@ -1,0 +1,26 @@
+[gd_scene load_steps=4 format=3 uid="uid://d1d6h8r7b6l0k"]
+
+[ext_resource type="Script" path="res://scripts/Boss.gd" id="1_uq4dc"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_6f7p8"]
+radius = 0.9
+height = 3.2
+
+[sub_resource type="CapsuleMesh" id="CapsuleMesh_6b4d8"]
+radius = 0.9
+height = 3.2
+
+[node name="Boss" type="CharacterBody3D"]
+script = ExtResource("1_uq4dc")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("CapsuleShape3D_6f7p8")
+
+[node name="Body" type="MeshInstance3D" parent="."]
+mesh = SubResource("CapsuleMesh_6b4d8")
+
+[node name="Area3D" type="Area3D" parent="."]
+monitoring = true
+
+[node name="CollisionShape3D2" type="CollisionShape3D" parent="Area3D"]
+shape = SubResource("CapsuleShape3D_6f7p8")

@@ -1,0 +1,57 @@
+[gd_scene load_steps=7 format=3 uid="uid://dc4hfl16s0ig0"]
+
+[ext_resource type="Script" path="res://scripts/Player.gd" id="1_7kq27"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_t6o4p"]
+radius = 0.5
+height = 1.8
+
+[sub_resource type="CapsuleMesh" id="CapsuleMesh_r10i2"]
+radius = 0.5
+height = 1.8
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_1j5dx"]
+height = 0.25
+radial_segments = 16
+
+[sub_resource type="BoxMesh" id="BoxMesh_3n7s0"]
+size = Vector3(0.2, 0.2, 1.2)
+
+[sub_resource type="SphereMesh" id="SphereMesh_8jt0v"]
+radius = 0.12
+height = 0.24
+
+[node name="Player" type="CharacterBody3D"]
+script = ExtResource("1_7kq27")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("CapsuleShape3D_t6o4p")
+
+[node name="Body" type="MeshInstance3D" parent="."]
+mesh = SubResource("CapsuleMesh_r10i2")
+
+[node name="Face" type="MeshInstance3D" parent="Body"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.3, -0.45)
+mesh = SubResource("SphereMesh_8jt0v")
+
+[node name="WeaponPivot" type="Node3D" parent="Body"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.55, 0.1, -0.2)
+
+[node name="Weapon" type="MeshInstance3D" parent="Body/WeaponPivot"]
+mesh = SubResource("BoxMesh_3n7s0")
+
+[node name="CameraPivot" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.2, 0)
+
+[node name="SpringArm3D" type="SpringArm3D" parent="CameraPivot"]
+spring_length = 6.0
+margin = 0.2
+
+[node name="Camera3D" type="Camera3D" parent="CameraPivot/SpringArm3D"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.2, 6.5)
+current = true
+fov = 75.0
+
+[node name="SwordTrail" type="MeshInstance3D" parent="."]
+visible = false
+mesh = SubResource("CylinderMesh_1j5dx")

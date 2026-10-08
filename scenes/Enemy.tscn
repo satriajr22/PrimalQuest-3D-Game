@@ -1,0 +1,26 @@
+[gd_scene load_steps=4 format=3 uid="uid://cus6odg1gr7l1"]
+
+[ext_resource type="Script" path="res://scripts/Enemy.gd" id="1_2x9yr"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_fv5qv"]
+radius = 0.55
+height = 1.8
+
+[sub_resource type="CapsuleMesh" id="CapsuleMesh_y2p5u"]
+radius = 0.55
+height = 1.8
+
+[node name="Enemy" type="CharacterBody3D"]
+script = ExtResource("1_2x9yr")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("CapsuleShape3D_fv5qv")
+
+[node name="Body" type="MeshInstance3D" parent="."]
+mesh = SubResource("CapsuleMesh_y2p5u")
+
+[node name="Area3D" type="Area3D" parent="."]
+monitoring = true
+
+[node name="CollisionShape3D2" type="CollisionShape3D" parent="Area3D"]
+shape = SubResource("CapsuleShape3D_fv5qv")

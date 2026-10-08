@@ -1,0 +1,104 @@
+[gd_scene load_steps=7 format=3 uid="uid://c8y4n7w8t2cze"]
+
+[ext_resource type="Script" path="res://scripts/Main.gd" id="1_1npl7"]
+[ext_resource type="Script" path="res://scripts/World.gd" id="2_5j3ic"]
+[ext_resource type="PackedScene" path="res://scenes/Player.tscn" id="3_0a7g0"]
+[ext_resource type="Script" path="res://scripts/HUD.gd" id="4_pj5fq"]
+
+[sub_resource type="BoxMesh" id="BoxMesh_f88ur"]
+size = Vector3(200, 1, 200)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_yt17v"]
+bg_color = Color(0.1, 0.12, 0.15, 0.72)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[node name="Main" type="Node3D"]
+script = ExtResource("1_1npl7")
+
+[node name="World" type="Node3D" parent="."]
+script = ExtResource("2_5j3ic")
+
+[node name="Ground" type="MeshInstance3D" parent="World"]
+mesh = SubResource("BoxMesh_f88ur")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="World"]
+transform = Transform3D(0.866025, -0.5, 0, 0.5, 0.866025, 0, 0, 0, 1, 0, 5, 0)
+light_energy = 1.2
+shadow_enabled = true
+
+[node name="Player" parent="." instance=ExtResource("3_0a7g0")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 10)
+
+[node name="HUD" type="CanvasLayer" parent="."]
+script = ExtResource("4_pj5fq")
+
+[node name="Panel" type="Panel" parent="HUD"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_yt17v")
+
+[node name="HealthBar" type="ProgressBar" parent="HUD"]
+offset_left = 26.0
+offset_top = 24.0
+offset_right = 330.0
+offset_bottom = 54.0
+value = 100.0
+show_percentage = false
+
+[node name="StaminaBar" type="ProgressBar" parent="HUD"]
+offset_left = 26.0
+offset_top = 60.0
+offset_right = 330.0
+offset_bottom = 90.0
+value = 100.0
+show_percentage = false
+
+[node name="XPBar" type="ProgressBar" parent="HUD"]
+offset_left = 26.0
+offset_top = 96.0
+offset_right = 330.0
+offset_bottom = 126.0
+value = 0.0
+show_percentage = false
+
+[node name="BossBar" type="ProgressBar" parent="HUD"]
+visible = false
+offset_left = 300.0
+offset_top = 22.0
+offset_right = 984.0
+offset_bottom = 52.0
+value = 100.0
+show_percentage = false
+
+[node name="QuestLabel" type="Label" parent="HUD"]
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -420.0
+offset_top = 22.0
+offset_right = -32.0
+offset_bottom = 62.0
+text = "Quest: Enter the Ruins"
+horizontal_alignment = 2
+vertical_alignment = 1
+
+[node name="InfoLabel" type="Label" parent="HUD"]
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -250.0
+offset_top = -90.0
+offset_right = 250.0
+offset_bottom = -34.0
+text = "Use W A S D, Shift, Space, Left Click, Right Click, E"
+horizontal_alignment = 1
+vertical_alignment = 1
